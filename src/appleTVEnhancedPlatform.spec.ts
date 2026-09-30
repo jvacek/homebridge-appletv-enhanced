@@ -1,15 +1,23 @@
 import assert from 'node:assert/strict';
 import { afterEach, before, beforeEach, describe, it, mock } from 'node:test';
-import type { API, Logger } from 'homebridge';
+import type { API, Logger, PlatformAccessory } from 'homebridge';
 import type { AppleTVEnhancedPlatformConfig } from './interfaces';
 import { FakeRocketRemote, fakePyAtvGateway, resetFakePyAtvDevice } from './testing/fakePyAtv';
 import type { FakePyAtvDevice } from './testing/fakePyAtv';
-import { createRecordingApi, createTempStorage, noopLogger, removeTempStorage, writeCredentials } from './testing/fakePlatform';
+import {
+    createRecordingApi,
+    createTempStorage,
+    createTestAccessory,
+    noopLogger,
+    removeTempStorage,
+    writeCredentials,
+} from './testing/fakePlatform';
 import type { RecordingApi } from './testing/fakePlatform';
 
 const MAC: string = 'AA:BB:CC:DD:EE:FF';
 
 interface PlatformUnderTest {
+    configureAccessory: (accessory: PlatformAccessory) => void;
     discoverDevices: () => Promise<void>;
 }
 
@@ -95,5 +103,24 @@ describe('AppleTVEnhancedPlatform discovery', (): void => {
             1,
             `expected the device to be planned once, but it was planned ${recorded.accessoryConstructions.length} times`,
         );
+    });
+
+    it('unregisters a cached accessory when its device is blacklisted', async (): Promise<void> => {
+        const recorded: RecordingApi = createRecordingApi(storagePath);
+        const config: AppleTVEnhancedPlatformConfig = {
+            ...televisionConfig(),
+            discover: { blacklist: [MAC], multicast: true, unicast: ['10.0.0.1'] },
+        };
+        const platform: PlatformUnderTest = new platformConstructor(noopLogger(), config, recorded.api);
+        const cached: PlatformAccessory = createTestAccessory('Apple TV Test', MAC) as unknown as PlatformAccessory;
+        platform.configureAccessory(cached);
+
+        await platform.discoverDevices();
+
+        assert.equal(recorded.unregistered.length, 1, 'expected the blacklisted device accessory to be unregistered');
+        assert.equal(recorded.unregistered[0].length, 1);
+        assert.equal(recorded.unregistered[0][0], cached);
+        assert.equal(recorded.published.length, 0);
+        assert.equal(recorded.registered.length, 0);
     });
 });

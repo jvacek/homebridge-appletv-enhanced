@@ -89,16 +89,18 @@ export interface RecordingApi {
     accessoryConstructions: string[];
     published: PlatformAccessory[][];
     registered: PlatformAccessory[][];
+    unregistered: PlatformAccessory[][];
 }
 
 /**
- * An API that records accessory construction, publication and registration so a
- * test can assert on the platform's discovery side effects.
+ * An API that records accessory construction, publication, registration and
+ * unregistration so a test can assert on the platform's discovery side effects.
  */
 export function createRecordingApi(storagePath: string): RecordingApi {
     const accessoryConstructions: string[] = [];
     const published: PlatformAccessory[][] = [];
     const registered: PlatformAccessory[][] = [];
+    const unregistered: PlatformAccessory[][] = [];
 
     // Must be constructable: the platform calls `new this.api.platformAccessory(...)`.
     const platformAccessory = function (name: string, uuid: string): hap.Accessory {
@@ -117,13 +119,15 @@ export function createRecordingApi(storagePath: string): RecordingApi {
         registerPlatformAccessories: (_plugin: string, _platform: string, accessories: PlatformAccessory[]): void => {
             registered.push(accessories);
         },
-        unregisterPlatformAccessories: (): void => { },
+        unregisterPlatformAccessories: (_plugin: string, _platform: string, accessories: PlatformAccessory[]): void => {
+            unregistered.push(accessories);
+        },
         user: {
             storagePath: (): string => storagePath,
         },
     }) as unknown as API;
 
-    return { accessoryConstructions, api, published, registered };
+    return { accessoryConstructions, api, published, registered, unregistered };
 }
 
 export function createTempStorage(): string {
