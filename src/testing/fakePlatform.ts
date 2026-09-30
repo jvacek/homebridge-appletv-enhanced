@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { EventEmitter } from 'node:events';
 import * as hap from '@homebridge/hap-nodejs';
 import type { API, Logger, PlatformAccessory } from 'homebridge';
 import type { AppleTVEnhancedPlatform } from '../appleTVEnhancedPlatform';
@@ -69,6 +70,60 @@ export function createTestAccessory(name: string, mac: string): hap.Accessory {
     const accessory: hap.Accessory = new hap.Accessory(name, hap.uuid.generate(mac));
     Object.assign(accessory, { context: { mac } });
     return accessory;
+}
+
+/** A logger that swallows everything, for tests that only need the platform plumbing. */
+export function noopLogger(): Logger {
+    return {
+        debug: (): void => { },
+        error: (): void => { },
+        info: (): void => { },
+        log: (): void => { },
+        success: (): void => { },
+        warn: (): void => { },
+    } as unknown as Logger;
+}
+
+export interface RecordingApi {
+    api: API;
+    accessoryConstructions: string[];
+    published: PlatformAccessory[][];
+    registered: PlatformAccessory[][];
+}
+
+/**
+ * An API that records accessory construction, publication and registration so a
+ * test can assert on the platform's discovery side effects.
+ */
+export function createRecordingApi(storagePath: string): RecordingApi {
+    const accessoryConstructions: string[] = [];
+    const published: PlatformAccessory[][] = [];
+    const registered: PlatformAccessory[][] = [];
+
+    // Must be constructable: the platform calls `new this.api.platformAccessory(...)`.
+    const platformAccessory = function (name: string, uuid: string): hap.Accessory {
+        accessoryConstructions.push(uuid);
+        const accessory: hap.Accessory = new hap.Accessory(name, uuid);
+        Object.assign(accessory, { context: {} });
+        return accessory;
+    };
+
+    const api: API = Object.assign(new EventEmitter(), {
+        hap,
+        platformAccessory,
+        publishExternalAccessories: (_plugin: string, accessories: PlatformAccessory[]): void => {
+            published.push(accessories);
+        },
+        registerPlatformAccessories: (_plugin: string, _platform: string, accessories: PlatformAccessory[]): void => {
+            registered.push(accessories);
+        },
+        unregisterPlatformAccessories: (): void => { },
+        user: {
+            storagePath: (): string => storagePath,
+        },
+    }) as unknown as API;
+
+    return { accessoryConstructions, api, published, registered };
 }
 
 export function createTempStorage(): string {
