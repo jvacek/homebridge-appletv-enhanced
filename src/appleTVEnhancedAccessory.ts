@@ -8,6 +8,7 @@ import {
     type PrimitiveTypes,
     type ConstructorArgs,
     type Characteristic,
+    type Categories,
     Formats,
 } from 'homebridge';
 import type { AppleTVEnhancedPlatform } from './appleTVEnhancedPlatform';
@@ -31,16 +32,18 @@ import {
     camelCaseToTitleCase,
 } from './utils';
 import type {
+    AccessoryMode,
     AppleTVEnhancedPlatformConfig,
     CustomPyATVCommandConfig,
     AppConfig,
     AppConfigs,
     CommonConfig,
+    ExposeAs,
     IInputs,
     NodePyATVApp,
     OutputDevice,
 } from './interfaces';
-import { getExposeAs, resolveDeviceConfig } from './config';
+import { getAccessoryMode, getExposeAs, resolveDeviceConfig } from './config';
 import PrefixLogger from './PrefixLogger';
 import { DisplayOrderTypes, PyATVCustomCharacteristicID, RocketRemoteKey } from './enums';
 import type { TDeviceStateConfigs, TMediaConfigs, TRemoteKeysAsSwitchConfigs } from './types';
@@ -104,6 +107,7 @@ export class AppleTVEnhancedAccessory {
     private mediaConfigs: TMediaConfigs | undefined = undefined;
     private readonly mediaTypeServices: Partial<Record<NodePyATVMediaType, Service>> = {};
     private offline: boolean = false;
+    private poweredOn: boolean | null = null;
     private readonly pyatvCharacteristics: Partial<Record<PyATVCustomCharacteristicID, Characteristic>> = {};
     private remoteKeyAsSwitchConfigs: TRemoteKeysAsSwitchConfigs | undefined = undefined;
     private readonly remoteKeyServices: Partial<Record<RocketRemoteKey, Service>> = {};
@@ -200,7 +204,7 @@ remaining)`);
     }
 
     private airPlayInputUpdateName(event: NodePyATVDeviceEvent): void {
-        if (event.value === null || event.value === '') {
+        if (this.airPlayInputService === undefined || event.value === null || event.value === '') {
             return;
         }
         const configuredName: string = event.value !== undefined && event.value !== 'AirPlay'
@@ -336,7 +340,7 @@ remaining)`);
                     }
                     return false;
                 });
-            this.service!.addLinkedService(s);
+            this.service?.addLinkedService(s);
             this.customPyatvCommandServices[name] = s;
         }
     }
@@ -381,7 +385,7 @@ ${value}.`);
                     }
                     return s.getCharacteristic(this.platform.characteristic.MotionDetected).value as CharacteristicValue;
                 });
-            this.service!.addLinkedService(s);
+            this.service?.addLinkedService(s);
             this.deviceStateServices[deviceState] = s;
         }
     }
@@ -541,7 +545,7 @@ from ${appConfigs[app.id].visibilityState} to ${value}.`);
                     s.updateCharacteristic(this.platform.characteristic.CurrentVisibilityState, value);
                     this.setAppConfigs(appConfigs);
                 });
-            this.service!.addLinkedService(s);
+            this.service?.addLinkedService(s);
             this.inputs[app.id] = s;
 
             addedApps++;
@@ -604,7 +608,7 @@ from ${appConfigs[app.id].visibilityState} to ${value}.`);
         this.device.on('update:mediaType', mediaTypeListener);
         this.device.on('update:volume', volumeListener);
 
-        if (this.config.disableCharacteristics !== true) {
+        if (this.service !== undefined && this.config.disableCharacteristics !== true) {
             for (const characteristicID of Object.values(PyATVCustomCharacteristicID)) {
                 const handler: (e: Error | NodePyATVDeviceEvent) => void = (e): void => {
                     pyatvCharacteristicListener(e, characteristicID);
@@ -665,7 +669,7 @@ from ${appConfigs[app.id].visibilityState} to ${value}.`);
                     }
                     return s.getCharacteristic(this.platform.characteristic.MotionDetected).value as CharacteristicValue;
                 });
-            this.service!.addLinkedService(s);
+            this.service?.addLinkedService(s);
             this.mediaTypeServices[mediaType] = s;
         }
     }
@@ -744,7 +748,7 @@ from ${appConfigs[app.id].visibilityState} to ${value}.`);
         );
 
         this.rocketRemote.onHome(((): void => {
-            this.service!.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, HOME_IDENTIFIER);
+            this.service?.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, HOME_IDENTIFIER);
         }).bind(this));
 
         this.rocketRemote.onClose((async (): Promise<void> => {
@@ -800,7 +804,7 @@ from ${appConfigs[app.id].visibilityState} to ${value}.`);
                     }
                     return false;
                 });
-            this.service!.addLinkedService(s);
+            this.service?.addLinkedService(s);
             this.remoteKeyServices[remoteKey] = s;
         }
     }
@@ -954,6 +958,19 @@ plugin after you have fixed the root cause. Enable debug logging to see the orig
             }
         }
         return false;
+    }
+
+    private exposeAsLabel(exposeAs: ExposeAs): string {
+        switch (exposeAs) {
+            case 'sensorsOnly':
+                return 'sensor and switch accessory';
+            case 'setTopBox':
+                return 'set-top box';
+            case 'appleTV':
+                return 'Apple TV';
+            default:
+                return 'Apple TV';
+        }
     }
 
     private getAppConfigs(): AppConfigs {
@@ -1142,6 +1159,7 @@ plugin after you have fixed the root cause. Enable debug logging to see the orig
         const value: 0 | 1 =
             event.value === 'on' ? this.platform.characteristic.Active.ACTIVE : this.platform.characteristic.Active.INACTIVE;
         this.log.info(`New Active State: ${event.value}`);
+        this.poweredOn = value === this.platform.characteristic.Active.ACTIVE;
         if (value === this.platform.characteristic.Active.ACTIVE) {
             for (let i: number = STEPS; i <= WAIT_MAX_FOR_STATES * 1000; i += STEPS) {
                 const { mediaType, deviceState } = await this.device.getState();
@@ -1174,7 +1192,7 @@ plugin after you have fixed the root cause. Enable debug logging to see the orig
                 s.updateCharacteristic(this.platform.characteristic.MotionDetected, false);
             }
         }
-        this.service!.updateCharacteristic(this.platform.characteristic.Active, value);
+        this.service?.updateCharacteristic(this.platform.characteristic.Active, value);
     }
 
     private async handleConfiguredNameGet(): Promise<Nullable<CharacteristicValue>> {
@@ -1203,7 +1221,7 @@ plugin after you have fixed the root cause. Enable debug logging to see the orig
             const s: Service = this.deviceStateServices[deviceState];
             s.updateCharacteristic(this.platform.characteristic.MotionDetected, false);
         }
-        if (this.service!.getCharacteristic(this.platform.characteristic.Active).value === this.platform.characteristic.Active.INACTIVE) {
+        if (this.isInactive()) {
             return;
         }
         this.log.info(`New Device State: ${event.value}`);
@@ -1214,31 +1232,31 @@ plugin after you have fixed the root cause. Enable debug logging to see the orig
 
         switch (event.value) {
             case NodePyATVDeviceState.playing:
-                this.service!.updateCharacteristic(
+                this.service?.updateCharacteristic(
                     this.platform.characteristic.CurrentMediaState,
                     this.platform.characteristic.CurrentMediaState.PLAY,
                 );
                 break;
             case NodePyATVDeviceState.paused:
-                this.service!.updateCharacteristic(
+                this.service?.updateCharacteristic(
                     this.platform.characteristic.CurrentMediaState,
                     this.platform.characteristic.CurrentMediaState.PAUSE,
                 );
                 break;
             case NodePyATVDeviceState.stopped:
-                this.service!.updateCharacteristic(
+                this.service?.updateCharacteristic(
                     this.platform.characteristic.CurrentMediaState,
                     this.platform.characteristic.CurrentMediaState.STOP,
                 );
                 break;
             case NodePyATVDeviceState.loading:
-                this.service!.updateCharacteristic(
+                this.service?.updateCharacteristic(
                     this.platform.characteristic.CurrentMediaState,
                     this.platform.characteristic.CurrentMediaState.LOADING,
                 );
                 break;
             case null:
-                this.service!.updateCharacteristic(
+                this.service?.updateCharacteristic(
                     this.platform.characteristic.CurrentMediaState,
                     this.platform.characteristic.CurrentMediaState.INTERRUPTED,
                 );
@@ -1249,24 +1267,27 @@ plugin after you have fixed the root cause. Enable debug logging to see the orig
     }
 
     private async handleInputUpdate(event: NodePyATVDeviceEvent): Promise<void> {
+        if (this.service === undefined) {
+            return;
+        }
         if (event.value === null || event.value === '') {
-            this.service!.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, HOME_IDENTIFIER);
+            this.service?.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, HOME_IDENTIFIER);
             return;
         }
         const appId: NodePyATVEventValueType = event.value;
         this.log.info(`Current App: ${appId}`);
 
         if (appId === AIR_PLAY_URI) {
-            this.service!.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, AIR_PLAY_IDENTIFIER);
+            this.service?.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, AIR_PLAY_IDENTIFIER);
         } else {
             const appConfig: AppConfig = this.getAppConfigs()[appId];
             if (appConfig !== undefined) {
                 const appIdentifier: number = appConfig.identifier;
                 this.setCommonConfig('activeIdentifier', appIdentifier);
-                this.service!.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, appIdentifier);
+                this.service?.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, appIdentifier);
             } else {
                 this.log.warn(`Could not update the input to ${appId} since the app is unknown. Fallback to homescreen.`);
-                this.service!.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, HOME_IDENTIFIER);
+                this.service?.updateCharacteristic(this.platform.characteristic.ActiveIdentifier, HOME_IDENTIFIER);
             }
         }
     }
@@ -1279,7 +1300,7 @@ plugin after you have fixed the root cause. Enable debug logging to see the orig
             const s: Service = this.mediaTypeServices[mediaType];
             s.updateCharacteristic(this.platform.characteristic.MotionDetected, false);
         }
-        if (this.service!.getCharacteristic(this.platform.characteristic.Active).value === this.platform.characteristic.Active.INACTIVE) {
+        if (this.isInactive()) {
             return;
         }
         this.log.info(`New Media Type: ${event.value}`);
@@ -1409,6 +1430,14 @@ plugin after you have fixed the root cause. Enable debug logging to see the orig
                 );
             }, 500);
         }
+    }
+
+    private isInactive(): boolean {
+        if (this.service !== undefined) {
+            return this.service.getCharacteristic(this.platform.characteristic.Active).value ===
+                this.platform.characteristic.Active.INACTIVE;
+        }
+        return this.poweredOn === false;
     }
 
     private mute(): void {
@@ -1559,6 +1588,15 @@ media-src * \'self\'');
         return credentials;
     }
 
+    private resolveCategory(mode: AccessoryMode): Categories {
+        if (mode === 'sensorsOnly') {
+            return this.platform.api.hap.Categories.OTHER;
+        }
+        return getExposeAs(this.config) === 'setTopBox'
+            ? this.platform.api.hap.Categories.TV_SET_TOP_BOX
+            : this.platform.api.hap.Categories.APPLE_TV;
+    }
+
     private setAppConfigs(value: AppConfigs): void {
         this.appConfigs = value;
         const jsonPath: string = this.getPath('apps.json');
@@ -1640,11 +1678,12 @@ ${characteristic.props.unit}".`);
     }
 
     private async startUp(): Promise<void> {
-        this.log.info(`Exposing Apple TV as accessory of type ${getExposeAs(this.config) === 'setTopBox' ? 'set-top box' : 'Apple TV'}.`);
+        const mode: AccessoryMode = getAccessoryMode(this.config);
 
-        this.accessory.category = getExposeAs(this.config) === 'setTopBox'
-            ? this.platform.api.hap.Categories.TV_SET_TOP_BOX
-            : this.platform.api.hap.Categories.APPLE_TV;
+        this.log.info(`Exposing ${this.device.name} as ${this.exposeAsLabel(getExposeAs(this.config))}.`);
+
+        this.accessory.category = this.resolveCategory(mode);
+        this.poweredOn = await this.device.getPowerState() === NodePyATVPowerState.on;
 
         const configuredName: string =
             this.getCommonConfig().configuredName ?? trimToMaxLength(removeSpecialCharacters(this.accessory.displayName), 64);
@@ -1657,84 +1696,87 @@ ${characteristic.props.unit}".`);
             .setCharacteristic(this.platform.characteristic.Name, removeSpecialCharacters(this.device.name))
             .setCharacteristic(this.platform.characteristic.FirmwareRevision, this.device.version!);
 
-        // create the service
-        this.service =
-            this.accessory.getService(this.platform.service.Television) || this.addServiceSave(this.platform.service.Television)!;
-        this.service.addCharacteristic(this.platform.characteristic.FirmwareRevision);
-        this.service
-            .setCharacteristic(
-                this.platform.characteristic.Active,
-                await this.device.getPowerState() === NodePyATVPowerState.on
-                    ? this.platform.characteristic.Active.ACTIVE
-                    : this.platform.characteristic.Active.INACTIVE,
-            )
-            .setCharacteristic(
-                this.platform.characteristic.ActiveIdentifier,
-                this.getCommonConfig().activeIdentifier ?? HOME_IDENTIFIER,
-            )
-            .setCharacteristic(this.platform.characteristic.ConfiguredName, configuredName)
-            .setCharacteristic(
-                this.platform.characteristic.SleepDiscoveryMode,
-                this.platform.characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE,
-            )
-            .setCharacteristic(this.platform.characteristic.CurrentMediaState, this.platform.characteristic.CurrentMediaState.INTERRUPTED)
-            .setCharacteristic(this.platform.characteristic.FirmwareRevision, this.device.version!);
+        // create the television service and all services that only exist for a television accessory
+        if (mode === 'television') {
+            this.service =
+                this.accessory.getService(this.platform.service.Television) || this.addServiceSave(this.platform.service.Television)!;
+            this.service.addCharacteristic(this.platform.characteristic.FirmwareRevision);
+            this.service
+                .setCharacteristic(
+                    this.platform.characteristic.Active,
+                    this.poweredOn === true ? this.platform.characteristic.Active.ACTIVE : this.platform.characteristic.Active.INACTIVE,
+                )
+                .setCharacteristic(
+                    this.platform.characteristic.ActiveIdentifier,
+                    this.getCommonConfig().activeIdentifier ?? HOME_IDENTIFIER,
+                )
+                .setCharacteristic(this.platform.characteristic.ConfiguredName, configuredName)
+                .setCharacteristic(
+                    this.platform.characteristic.SleepDiscoveryMode,
+                    this.platform.characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE,
+                )
+                .setCharacteristic(
+                    this.platform.characteristic.CurrentMediaState,
+                    this.platform.characteristic.CurrentMediaState.INTERRUPTED,
+                )
+                .setCharacteristic(this.platform.characteristic.FirmwareRevision, this.device.version!);
 
-        // add custom static characteristics
-        this.service
-            .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'MAC Address'))
-            .updateValue(this.device.mac ?? null);
-        this.service
-            .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'Model'))
-            .updateValue(this.device.model ?? null);
-        this.service
-            .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'Model Name'))
-            .updateValue(this.device.modelName ?? null);
-        this.service
-            .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'OS'))
-            .updateValue(this.device.os ?? null);
-        this.service
-            .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'Host'))
-            .updateValue(this.device.host ?? null);
+            // add custom static characteristics
+            this.service
+                .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'MAC Address'))
+                .updateValue(this.device.mac ?? null);
+            this.service
+                .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'Model'))
+                .updateValue(this.device.model ?? null);
+            this.service
+                .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'Model Name'))
+                .updateValue(this.device.modelName ?? null);
+            this.service
+                .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'OS'))
+                .updateValue(this.device.os ?? null);
+            this.service
+                .addCharacteristic(newStringCharacteristic(this.platform.api.hap, 'Host'))
+                .updateValue(this.device.host ?? null);
 
-        // create handlers for required characteristics of the service
-        this.service.getCharacteristic(this.platform.characteristic.Active)
-            .onGet(this.handleActiveGet.bind(this))
-            .onSet(this.handleActiveSet.bind(this));
-        this.service.getCharacteristic(this.platform.characteristic.ActiveIdentifier)
-            .onGet(this.handleActiveIdentifierGet.bind(this))
-            .onSet(this.handleActiveIdentifierSet.bind(this));
-        this.service.getCharacteristic(this.platform.characteristic.ConfiguredName)
-            .onGet(this.handleConfiguredNameGet.bind(this))
-            .onSet(this.handleConfiguredNameSet.bind(this));
-        this.service.getCharacteristic(this.platform.characteristic.SleepDiscoveryMode)
-            .onGet(this.handleSleepDiscoveryModeGet.bind(this));
-        this.service.getCharacteristic(this.platform.characteristic.RemoteKey)
-            .onSet(this.handleRemoteKeySet.bind(this));
+            // create handlers for required characteristics of the service
+            this.service.getCharacteristic(this.platform.characteristic.Active)
+                .onGet(this.handleActiveGet.bind(this))
+                .onSet(this.handleActiveSet.bind(this));
+            this.service.getCharacteristic(this.platform.characteristic.ActiveIdentifier)
+                .onGet(this.handleActiveIdentifierGet.bind(this))
+                .onSet(this.handleActiveIdentifierSet.bind(this));
+            this.service.getCharacteristic(this.platform.characteristic.ConfiguredName)
+                .onGet(this.handleConfiguredNameGet.bind(this))
+                .onSet(this.handleConfiguredNameSet.bind(this));
+            this.service.getCharacteristic(this.platform.characteristic.SleepDiscoveryMode)
+                .onGet(this.handleSleepDiscoveryModeGet.bind(this));
+            this.service.getCharacteristic(this.platform.characteristic.RemoteKey)
+                .onSet(this.handleRemoteKeySet.bind(this));
+        }
 
         this.log.setPrefix(`${configuredName} (${this.device.mac})`);
 
         // create pyatv characteristics
-        if (this.config.disableCharacteristics !== true) {
+        if (mode === 'television' && this.config.disableCharacteristics !== true) {
             await this.createPyATVCharacteristics();
         }
 
         // create television speaker
-        if (this.config.disableVolumeControlRemote !== true) {
+        if (mode === 'television' && this.config.disableVolumeControlRemote !== true) {
             this.createTelevisionSpeaker();
         }
 
         // create sensor services
         const currentDeviceState: NodePyATVDeviceState | null =
-            await this.device.getPowerState() === NodePyATVPowerState.on ? await this.device.getDeviceState() : null;
+            this.poweredOn === true ? await this.device.getDeviceState() : null;
         this.createDeviceStateSensors(currentDeviceState);
         const currentMediaType: NodePyATVMediaType | null =
-            await this.device.getPowerState() === NodePyATVPowerState.on ? await this.device.getMediaType() : null;
+            this.poweredOn === true ? await this.device.getMediaType() : null;
         this.createMediaTypeSensors(currentMediaType);
         this.createRemoteKeysAsSwitches();
 
         // create volume fan
-        if (this.config.absoluteVolumeControl === true) {
+        if (mode === 'television' && this.config.absoluteVolumeControl === true) {
             await this.createVolumeFan();
         }
 
@@ -1742,7 +1784,7 @@ ${characteristic.props.unit}".`);
         this.createCustomPyatvCommandSwitches(this.config.customPyatvCommands || []);
 
         // create inputs
-        if (this.config.disableInputs !== true) {
+        if (mode === 'television' && this.config.disableInputs !== true) {
             this.createAvadaKedavra();
             this.createHomeInput();
             this.createAirPlayInput();
@@ -1757,8 +1799,13 @@ ${characteristic.props.unit}".`);
         this.createRemote();
 
         // start updating the position update
-        if (this.config.disableCharacteristics !== true) {
+        if (mode === 'television' && this.config.disableCharacteristics !== true) {
             this.startPositionUpdate();
+        }
+
+        if (mode === 'sensorsOnly' && this.accessory.services.length <= 1) {
+            this.log.warn('The exposeAs mode is set to sensorsOnly but no media types, device states, remote keys or custom PyATV commands \
+are configured. Exposing an empty accessory.');
         }
 
         this.log.info('Finished initializing');
