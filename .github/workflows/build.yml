@@ -92,3 +92,7 @@ jobs:
       - name: Build
         shell: bash
         run: npm run build
+
+      - name: Test
+        shell: bash
+        run: npm test
