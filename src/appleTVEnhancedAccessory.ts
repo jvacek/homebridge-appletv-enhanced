@@ -33,7 +33,6 @@ import {
 import type {
     AppleTVEnhancedPlatformConfig,
     CustomPyATVCommandConfig,
-    DeviceConfigOverride,
     AppConfig,
     AppConfigs,
     CommonConfig,
@@ -41,6 +40,7 @@ import type {
     NodePyATVApp,
     OutputDevice,
 } from './interfaces';
+import { getExposeAs, resolveDeviceConfig } from './config';
 import PrefixLogger from './PrefixLogger';
 import { DisplayOrderTypes, PyATVCustomCharacteristicID, RocketRemoteKey } from './enums';
 import type { TDeviceStateConfigs, TMediaConfigs, TRemoteKeysAsSwitchConfigs } from './types';
@@ -116,7 +116,7 @@ export class AppleTVEnhancedAccessory {
         private readonly platform: AppleTVEnhancedPlatform,
         private readonly accessory: PlatformAccessory,
     ) {
-        this.config = this.applyConfigOverrides(this.platform.config, this.accessory.context.mac);
+        this.config = resolveDeviceConfig(this.platform.config, this.accessory.context.mac);
 
         this.device = CustomPyAtvInstance.deviceAdvanced({ mac: this.accessory.context.mac as string })!;
 
@@ -229,57 +229,6 @@ remaining)`);
             ]);
         });
         return identifiersTLV.toString('base64');
-    }
-
-    private applyConfigOverrides(config: AppleTVEnhancedPlatformConfig, mac: string): AppleTVEnhancedPlatformConfig {
-        if (config.deviceSpecificOverrides === undefined) {
-            return config;
-        }
-
-        const override: DeviceConfigOverride | undefined =
-            config.deviceSpecificOverrides.find((e) => e.mac?.toUpperCase() === mac.toUpperCase());
-
-        if (override === undefined) {
-            return config;
-        }
-
-        config = structuredClone(config);
-
-        if (override.overrideMediaTypes === true) {
-            config.mediaTypes = override.mediaTypes;
-        }
-        if (override.overrideDeviceStates === true) {
-            config.deviceStates = override.deviceStates;
-        }
-        if (override.overrideRemoteKeysAsSwitch === true) {
-            config.remoteKeysAsSwitch = override.remoteKeysAsSwitch;
-        }
-        if (override.overrideAvadaKedavraAppAmount === true) {
-            config.avadaKedavraAppAmount = override.avadaKedavraAppAmount;
-        }
-        if (override.overrideCustomInputURIs === true) {
-            config.customInputURIs = override.customInputURIs;
-        }
-        if (override.overrideCustomPyatvCommands === true) {
-            config.customPyatvCommands = override.customPyatvCommands;
-        }
-        if (override.overrideDisableCharacteristics === true) {
-            config.disableCharacteristics = override.disableCharacteristics;
-        }
-        if (override.overrideDisableInputs === true) {
-            config.disableInputs = override.disableInputs;
-        }
-        if (override.overrideDisableVolumeControlRemote === true) {
-            config.disableVolumeControlRemote = override.disableVolumeControlRemote;
-        }
-        if (override.overrideAbsoluteVolumeControl === true) {
-            config.absoluteVolumeControl = override.absoluteVolumeControl;
-        }
-        if (override.overrideSetTopBox === true) {
-            config.setTopBox = override.setTopBox;
-        }
-
-        return config;
     }
 
     private createAirPlayInput(): void {
@@ -1691,9 +1640,9 @@ ${characteristic.props.unit}".`);
     }
 
     private async startUp(): Promise<void> {
-        this.log.info(`Exposing Apple TV as accessory of type ${this.config.setTopBox === true ? 'set-top box' : 'Apple TV'}.`);
+        this.log.info(`Exposing Apple TV as accessory of type ${getExposeAs(this.config) === 'setTopBox' ? 'set-top box' : 'Apple TV'}.`);
 
-        this.accessory.category = this.config.setTopBox === true
+        this.accessory.category = getExposeAs(this.config) === 'setTopBox'
             ? this.platform.api.hap.Categories.TV_SET_TOP_BOX
             : this.platform.api.hap.Categories.APPLE_TV;
 
