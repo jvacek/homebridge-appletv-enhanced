@@ -298,7 +298,7 @@ The `setTopBox` option is deprecated in favor of `exposeAs`. Existing configurat
 | `exposeAs` unset, `setTopBox: false` | `appleTV`                                      |
 | `exposeAs` set                       | the configured value (`setTopBox` is ignored) |
 
-Per-device overrides migrate the same way: `overrideSetTopBox` + `setTopBox` map onto `overrideExposeAs` + `exposeAs`. To migrate, replace `setTopBox: true` with `exposeAs: "setTopBox"`.
+Per-device overrides migrate the same way: `overrideSetTopBox` + `setTopBox` map onto `overrideExposeAs` + `exposeAs`, and a per-device override always wins over the global setting. To migrate, replace `setTopBox: true` with `exposeAs: "setTopBox"`.
 
 ## Known Issues
 

@@ -1682,9 +1682,8 @@ ${characteristic.props.unit}".`);
 
         this.log.info(`Exposing ${this.device.name} as ${this.exposeAsLabel(getExposeAs(this.config))}.`);
 
-        if (isLegacySetTopBox(this.config)) {
-            this.log.warn('The "setTopBox" option is deprecated. It is interpreted as "exposeAs": "setTopBox". \
-Please migrate to the "exposeAs" option.');
+        if (isLegacySetTopBox(this.platform.config, this.accessory.context.mac as string)) {
+            this.log.warn('The "setTopBox" option is deprecated and still honored. Please migrate this device to the "exposeAs" option.');
         }
 
         this.accessory.category = this.resolveCategory(mode);

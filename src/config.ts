@@ -21,22 +21,52 @@ export function getExposeAs(config: AppleTVEnhancedPlatformConfig): ExposeAs {
     return config.setTopBox === true ? 'setTopBox' : 'appleTV';
 }
 
-/**
- * Whether the configuration relies on the deprecated `setTopBox` flag instead
- * of the `exposeAs` option. Used to nudge users towards an explicit migration.
- */
-export function isLegacySetTopBox(config: AppleTVEnhancedPlatformConfig): boolean {
-    return config.exposeAs === undefined && config.setTopBox !== undefined;
+function findOverride(config: AppleTVEnhancedPlatformConfig, mac: string): DeviceConfigOverride | undefined {
+    return config.deviceSpecificOverrides?.find((e) => e.mac?.toUpperCase() === mac.toUpperCase());
 }
 
 /**
- * Apply the matching entry of `deviceSpecificOverrides` to the platform config.
- * The `exposeAs` mode is intentionally resolved lazily by `getExposeAs()` so the
- * deprecated `setTopBox` flag keeps working.
+ * Resolve the effective `exposeAs` for a device and whether it came from the
+ * deprecated `setTopBox` flag. A per-device `exposeAs` override wins over a
+ * legacy per-device `overrideSetTopBox`, which wins over the global
+ * configuration. Single source of truth for `resolveDeviceConfig` and
+ * `isLegacySetTopBox`, so the two cannot drift apart.
+ */
+function resolveExposeAs(
+    config: AppleTVEnhancedPlatformConfig,
+    override: DeviceConfigOverride | undefined,
+): { exposeAs: ExposeAs; legacy: boolean } {
+    if (override?.overrideExposeAs === true && override.exposeAs !== undefined) {
+        return { exposeAs: override.exposeAs, legacy: false };
+    }
+    if (override?.overrideSetTopBox === true && override.setTopBox !== undefined) {
+        return { exposeAs: override.setTopBox ? 'setTopBox' : 'appleTV', legacy: override.setTopBox };
+    }
+    if (config.exposeAs !== undefined) {
+        return { exposeAs: config.exposeAs, legacy: false };
+    }
+    const legacy: boolean = config.setTopBox === true;
+    return { exposeAs: legacy ? 'setTopBox' : 'appleTV', legacy };
+}
+
+/**
+ * Whether the device relies on the deprecated `setTopBox` flag instead of the
+ * `exposeAs` option. Used to nudge users towards an explicit migration. The
+ * result reflects the value that actually wins for this device, so a per-device
+ * `overrideExposeAs` or a per-device `overrideSetTopBox` that resolves to
+ * `appleTV` counts as migrated even if a global `setTopBox` remains.
+ */
+export function isLegacySetTopBox(config: AppleTVEnhancedPlatformConfig, mac: string): boolean {
+    return resolveExposeAs(config, findOverride(config, mac)).legacy;
+}
+
+/**
+ * Apply the matching entry of `deviceSpecificOverrides` to the platform config
+ * and resolve the effective `exposeAs` mode, honoring the deprecated `setTopBox`
+ * flag. Per-device overrides take precedence over the global configuration.
  */
 export function resolveDeviceConfig(config: AppleTVEnhancedPlatformConfig, mac: string): AppleTVEnhancedPlatformConfig {
-    const override: DeviceConfigOverride | undefined =
-        config.deviceSpecificOverrides?.find((e) => e.mac?.toUpperCase() === mac.toUpperCase());
+    const override: DeviceConfigOverride | undefined = findOverride(config, mac);
 
     const resolved: AppleTVEnhancedPlatformConfig = override === undefined
         ? { ...config }
@@ -73,13 +103,9 @@ export function resolveDeviceConfig(config: AppleTVEnhancedPlatformConfig, mac: 
         if (override.overrideAbsoluteVolumeControl === true) {
             resolved.absoluteVolumeControl = override.absoluteVolumeControl;
         }
-        if (override.overrideSetTopBox === true) {
-            resolved.setTopBox = override.setTopBox;
-        }
-        if (override.overrideExposeAs === true) {
-            resolved.exposeAs = override.exposeAs;
-        }
     }
+
+    resolved.exposeAs = resolveExposeAs(config, override).exposeAs;
 
     return resolved;
 }
