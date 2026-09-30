@@ -1,6 +1,17 @@
 import type { AccessoryMode, AppleTVEnhancedPlatformConfig, DeviceConfigOverride, ExposeAs } from './interfaces';
 
 /**
+ * Seed for the accessory UUID. Television modes keep the bare MAC so existing
+ * accessories keep their identity across upgrades, while `sensorsOnly` uses a
+ * distinct seed so both modes can coexist. In development mode the local
+ * hostname is prefixed so multiple instances can run side by side.
+ */
+export function accessoryUuidSeed(mac: string, mode: AccessoryMode, devHostname?: string): string {
+    const suffix: string = mode === 'sensorsOnly' ? '#sensors-only' : '';
+    return `${devHostname ?? ''}${mac}${suffix}`;
+}
+
+/**
  * The structural accessory mode. `appleTV` and `setTopBox` both expose a
  * Television service and only differ in the accessory category, while
  * `sensorsOnly` exposes the configured sensors and switches as a bridged

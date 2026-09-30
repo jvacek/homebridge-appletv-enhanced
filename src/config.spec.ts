@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { getAccessoryMode, getExposeAs, isLegacySetTopBox, resolveDeviceConfig } from './config';
+import { accessoryUuidSeed, getAccessoryMode, getExposeAs, isLegacySetTopBox, resolveDeviceConfig } from './config';
 import type { AppleTVEnhancedPlatformConfig, DeviceConfigOverride, ExposeAs } from './interfaces';
 
 const MAC: string = 'AA:BB:CC:DD:EE:FF';
@@ -43,6 +43,22 @@ describe('config', (): void => {
 
         it('maps the sensorsOnly exposeAs value to the sensorsOnly mode', (): void => {
             assert.equal(getAccessoryMode({ ...baseConfig(), exposeAs: 'sensorsOnly' }), 'sensorsOnly');
+        });
+    });
+
+    describe('accessoryUuidSeed', (): void => {
+        it('keeps the bare MAC for television modes', (): void => {
+            assert.equal(accessoryUuidSeed(MAC, 'television'), MAC);
+        });
+
+        it('uses a distinct seed for sensorsOnly', (): void => {
+            assert.equal(accessoryUuidSeed(MAC, 'sensorsOnly'), `${MAC}#sensors-only`);
+            assert.notEqual(accessoryUuidSeed(MAC, 'sensorsOnly'), accessoryUuidSeed(MAC, 'television'));
+        });
+
+        it('prefixes the hostname in development mode', (): void => {
+            assert.equal(accessoryUuidSeed(MAC, 'television', 'host-'), `host-${MAC}`);
+            assert.equal(accessoryUuidSeed(MAC, 'sensorsOnly', 'host-'), `host-${MAC}#sensors-only`);
         });
     });
 
@@ -167,6 +183,82 @@ describe('config', (): void => {
             };
             assert.equal(resolveDeviceConfig(config, MAC).disableInputs, true);
             assert.equal(resolveDeviceConfig(config, OTHER_MAC).disableInputs, false);
+        });
+    });
+
+    describe('resolveDeviceConfig override coverage', (): void => {
+        const globalConfig: AppleTVEnhancedPlatformConfig = {
+            ...baseConfig(),
+            absoluteVolumeControl: false,
+            avadaKedavraAppAmount: 15,
+            customInputURIs: ['global-uri'],
+            customPyatvCommands: [{ command: 'global', name: 'Global' }],
+            deviceStates: ['idle'],
+            disableCharacteristics: false,
+            disableInputs: false,
+            disableVolumeControlRemote: false,
+            mediaTypes: ['music'],
+            remoteKeysAsSwitch: ['play'],
+        };
+        const fullOverride: DeviceConfigOverride = {
+            absoluteVolumeControl: true,
+            avadaKedavraAppAmount: 30,
+            customInputURIs: ['override-uri'],
+            customPyatvCommands: [{ command: 'override', name: 'Override' }],
+            deviceStates: ['paused'],
+            disableCharacteristics: true,
+            disableInputs: true,
+            disableVolumeControlRemote: true,
+            mac: MAC,
+            mediaTypes: ['video'],
+            overrideAbsoluteVolumeControl: true,
+            overrideAvadaKedavraAppAmount: true,
+            overrideCustomInputURIs: true,
+            overrideCustomPyatvCommands: true,
+            overrideDeviceStates: true,
+            overrideDisableCharacteristics: true,
+            overrideDisableInputs: true,
+            overrideDisableVolumeControlRemote: true,
+            overrideMediaTypes: true,
+            overrideRemoteKeysAsSwitch: true,
+            remoteKeysAsSwitch: ['pause'],
+        };
+
+        it('applies every per-device override', (): void => {
+            const resolved: AppleTVEnhancedPlatformConfig =
+                resolveDeviceConfig({ ...globalConfig, deviceSpecificOverrides: [fullOverride] }, MAC);
+            assert.deepEqual(resolved.mediaTypes, ['video']);
+            assert.deepEqual(resolved.deviceStates, ['paused']);
+            assert.deepEqual(resolved.remoteKeysAsSwitch, ['pause']);
+            assert.equal(resolved.avadaKedavraAppAmount, 30);
+            assert.deepEqual(resolved.customInputURIs, ['override-uri']);
+            assert.deepEqual(resolved.customPyatvCommands, [{ command: 'override', name: 'Override' }]);
+            assert.equal(resolved.disableCharacteristics, true);
+            assert.equal(resolved.disableInputs, true);
+            assert.equal(resolved.disableVolumeControlRemote, true);
+            assert.equal(resolved.absoluteVolumeControl, true);
+        });
+
+        it('ignores values whose override flag is not set', (): void => {
+            const overrideWithoutFlags: DeviceConfigOverride = { mac: MAC, disableInputs: true, mediaTypes: ['video'] };
+            const resolved: AppleTVEnhancedPlatformConfig =
+                resolveDeviceConfig({ ...globalConfig, deviceSpecificOverrides: [overrideWithoutFlags] }, MAC);
+            assert.equal(resolved.disableInputs, false);
+            assert.deepEqual(resolved.mediaTypes, ['music']);
+        });
+
+        it('does not apply an override that targets another mac', (): void => {
+            const resolved: AppleTVEnhancedPlatformConfig =
+                resolveDeviceConfig({ ...globalConfig, deviceSpecificOverrides: [fullOverride] }, OTHER_MAC);
+            assert.equal(resolved.disableInputs, false);
+            assert.deepEqual(resolved.mediaTypes, ['music']);
+        });
+
+        it('does not mutate the platform config when applying overrides', (): void => {
+            const config: AppleTVEnhancedPlatformConfig = { ...globalConfig, deviceSpecificOverrides: [fullOverride] };
+            resolveDeviceConfig(config, MAC);
+            assert.equal(config.disableInputs, false);
+            assert.deepEqual(config.mediaTypes, ['music']);
         });
     });
 

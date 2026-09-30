@@ -3,7 +3,7 @@ import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { AppleTVEnhancedAccessory } from './appleTVEnhancedAccessory';
 import { planAccessoryActions } from './accessoryPlan';
 import type { AccessoryPlan, PlannedDevice } from './accessoryPlan';
-import { getAccessoryMode, resolveDeviceConfig } from './config';
+import { accessoryUuidSeed, getAccessoryMode, resolveDeviceConfig } from './config';
 import CustomPyAtvInstance from './CustomPyAtvInstance';
 import type { AccessoryMode, AppleTVEnhancedPlatformConfig } from './interfaces';
 import type { NodePyATVDevice, NodePyATVFindResponseObject } from '@sebbo2002/node-pyatv';
@@ -100,12 +100,10 @@ export class AppleTVEnhancedPlatform implements DynamicPlatformPlugin {
     }
 
     private accessoryUUID(mac: string, mode: AccessoryMode): string {
-        const suffix: string = mode === 'sensorsOnly' ? '#sensors-only' : '';
-        let uuid: string = this.api.hap.uuid.generate(`${mac}${suffix}`);
+        const devHostname: string | undefined = DEV_MODE === true ? hostname() : undefined;
+        const uuid: string = this.api.hap.uuid.generate(accessoryUuidSeed(mac, mode, devHostname));
         if (DEV_MODE === true) {
-            const localHostname: string = hostname();
-            uuid = this.api.hap.uuid.generate(`${localHostname}${mac}${suffix}`);
-            this.log.debug(`Generated UUID ${uuid} for ${mac} from local hostname ${localHostname} since development mode is enabled.`);
+            this.log.debug(`Generated UUID ${uuid} for ${mac} from local hostname ${devHostname} since development mode is enabled.`);
         }
         return uuid;
     }
