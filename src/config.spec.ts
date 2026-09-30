@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { getAccessoryMode, getExposeAs, isLegacySetTopBox, resolveDeviceConfig } from './config';
-import type { AppleTVEnhancedPlatformConfig, DeviceConfigOverride } from './interfaces';
+import type { AppleTVEnhancedPlatformConfig, DeviceConfigOverride, ExposeAs } from './interfaces';
 
 const MAC: string = 'AA:BB:CC:DD:EE:FF';
 const OTHER_MAC: string = '11:22:33:44:55:66';
@@ -12,6 +12,12 @@ const baseConfig = (): AppleTVEnhancedPlatformConfig => {
         platform: 'AppleTVEnhanced',
     };
 };
+
+interface ExposeAsCase {
+    config: AppleTVEnhancedPlatformConfig;
+    expected: ExposeAs;
+    label: string;
+}
 
 describe('config', (): void => {
     describe('getExposeAs', (): void => {
@@ -161,6 +167,84 @@ describe('config', (): void => {
             };
             assert.equal(resolveDeviceConfig(config, MAC).disableInputs, true);
             assert.equal(resolveDeviceConfig(config, OTHER_MAC).disableInputs, false);
+        });
+    });
+
+    describe('exposeAs resolution order', (): void => {
+        it('resolves the global config as documented', (): void => {
+            const cases: ExposeAsCase[] = [
+                { config: baseConfig(), expected: 'appleTV', label: 'nothing set' },
+                { config: { ...baseConfig(), setTopBox: true }, expected: 'setTopBox', label: 'setTopBox true' },
+                { config: { ...baseConfig(), setTopBox: false }, expected: 'appleTV', label: 'setTopBox false' },
+                { config: { ...baseConfig(), exposeAs: 'appleTV' }, expected: 'appleTV', label: 'exposeAs appleTV' },
+                { config: { ...baseConfig(), exposeAs: 'setTopBox' }, expected: 'setTopBox', label: 'exposeAs setTopBox' },
+                { config: { ...baseConfig(), exposeAs: 'sensorsOnly' }, expected: 'sensorsOnly', label: 'exposeAs sensorsOnly' },
+                {
+                    config: { ...baseConfig(), exposeAs: 'sensorsOnly', setTopBox: true },
+                    expected: 'sensorsOnly',
+                    label: 'exposeAs wins over setTopBox',
+                },
+            ];
+
+            for (const testCase of cases) {
+                assert.equal(getExposeAs(testCase.config), testCase.expected, testCase.label);
+            }
+        });
+
+        it('resolves per-device overrides ahead of the global config as documented', (): void => {
+            const bothOverrides: DeviceConfigOverride = {
+                exposeAs: 'sensorsOnly',
+                mac: MAC,
+                overrideExposeAs: true,
+                overrideSetTopBox: true,
+                setTopBox: true,
+            };
+            const cases: ExposeAsCase[] = [
+                {
+                    config: {
+                        ...baseConfig(),
+                        exposeAs: 'appleTV',
+                        deviceSpecificOverrides: [{ mac: MAC, overrideSetTopBox: true, setTopBox: true }],
+                    },
+                    expected: 'setTopBox',
+                    label: 'overrideSetTopBox wins over a global exposeAs',
+                },
+                {
+                    config: {
+                        ...baseConfig(),
+                        exposeAs: 'sensorsOnly',
+                        deviceSpecificOverrides: [{ mac: MAC, overrideSetTopBox: true, setTopBox: false }],
+                    },
+                    expected: 'appleTV',
+                    label: 'overrideSetTopBox false switches a global sensorsOnly back to a television',
+                },
+                {
+                    config: {
+                        ...baseConfig(),
+                        setTopBox: true,
+                        deviceSpecificOverrides: [{ mac: MAC, overrideExposeAs: true, exposeAs: 'appleTV' }],
+                    },
+                    expected: 'appleTV',
+                    label: 'overrideExposeAs wins over a global setTopBox',
+                },
+                {
+                    config: {
+                        ...baseConfig(),
+                        deviceSpecificOverrides: [{ mac: MAC, overrideExposeAs: true, exposeAs: 'sensorsOnly' }],
+                    },
+                    expected: 'sensorsOnly',
+                    label: 'overrideExposeAs without a global value',
+                },
+                {
+                    config: { ...baseConfig(), exposeAs: 'appleTV', deviceSpecificOverrides: [bothOverrides] },
+                    expected: 'sensorsOnly',
+                    label: 'overrideExposeAs wins when both overrides are set',
+                },
+            ];
+
+            for (const testCase of cases) {
+                assert.equal(resolveDeviceConfig(testCase.config, MAC).exposeAs, testCase.expected, testCase.label);
+            }
         });
     });
 });
