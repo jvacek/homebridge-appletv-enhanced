@@ -22,8 +22,17 @@ export function getExposeAs(config: AppleTVEnhancedPlatformConfig): ExposeAs {
 }
 
 /**
- * Apply the matching entry of `deviceSpecificOverrides` to the platform config
- * and normalize the `exposeAs` mode.
+ * Whether the configuration relies on the deprecated `setTopBox` flag instead
+ * of the `exposeAs` option. Used to nudge users towards an explicit migration.
+ */
+export function isLegacySetTopBox(config: AppleTVEnhancedPlatformConfig): boolean {
+    return config.exposeAs === undefined && config.setTopBox !== undefined;
+}
+
+/**
+ * Apply the matching entry of `deviceSpecificOverrides` to the platform config.
+ * The `exposeAs` mode is intentionally resolved lazily by `getExposeAs()` so the
+ * deprecated `setTopBox` flag keeps working.
  */
 export function resolveDeviceConfig(config: AppleTVEnhancedPlatformConfig, mac: string): AppleTVEnhancedPlatformConfig {
     const override: DeviceConfigOverride | undefined =
@@ -71,8 +80,6 @@ export function resolveDeviceConfig(config: AppleTVEnhancedPlatformConfig, mac: 
             resolved.exposeAs = override.exposeAs;
         }
     }
-
-    resolved.exposeAs = getExposeAs(resolved);
 
     return resolved;
 }

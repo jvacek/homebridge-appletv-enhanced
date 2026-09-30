@@ -287,6 +287,19 @@ Also see [device specific overrides](https://github.com/maxileith/homebridge-app
 | `logLevel`                   | Set the log level. (0 - None; 1 - Error; 2 - Warn; 3 - Info; 4 - Debug; 5 - Verbose)                                                                                                                                                                                                                                                                                                                                                                                                           | `integer`       | 0 - 5                                                                                                                                                                                                                                                                        | `3`                                                         |
 | `pythonExecutable`           | Here you can specify a path that points to a python executable. The plugin uses the systems default python as default. Setting a specific python executable here may be required if your systems default python version is too current for the plugin.                                                                                                                                                                                                                                         | `string`        | valid absolute path                                                                                                                                                                                                                                                          | `python3` from PATH                                         |
 
+### Migrating from `setTopBox`
+
+The `setTopBox` option is deprecated in favor of `exposeAs`. Existing configurations keep working because the mode is resolved at runtime:
+
+| Old configuration                    | Resolved `exposeAs`                           |
+| ------------------------------------ | --------------------------------------------- |
+| `exposeAs` unset, `setTopBox` unset  | `appleTV`                                      |
+| `exposeAs` unset, `setTopBox: true`  | `setTopBox`                                    |
+| `exposeAs` unset, `setTopBox: false` | `appleTV`                                      |
+| `exposeAs` set                       | the configured value (`setTopBox` is ignored) |
+
+Per-device overrides migrate the same way: `overrideSetTopBox` + `setTopBox` map onto `overrideExposeAs` + `exposeAs`. To migrate, replace `setTopBox: true` with `exposeAs: "setTopBox"`.
+
 ## Known Issues
 
 -   Apple TVs report a MAC-Address that is different from the MAC-Address that you will see in the network settings of your Apple TV when scanning for devices. Therefore, when blacklisting Apple TVs use the MAC-Address from the logs.

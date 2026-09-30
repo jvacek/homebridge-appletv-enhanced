@@ -43,7 +43,7 @@ import type {
     NodePyATVApp,
     OutputDevice,
 } from './interfaces';
-import { getAccessoryMode, getExposeAs, resolveDeviceConfig } from './config';
+import { getAccessoryMode, getExposeAs, isLegacySetTopBox, resolveDeviceConfig } from './config';
 import PrefixLogger from './PrefixLogger';
 import { DisplayOrderTypes, PyATVCustomCharacteristicID, RocketRemoteKey } from './enums';
 import type { TDeviceStateConfigs, TMediaConfigs, TRemoteKeysAsSwitchConfigs } from './types';
@@ -1681,6 +1681,11 @@ ${characteristic.props.unit}".`);
         const mode: AccessoryMode = getAccessoryMode(this.config);
 
         this.log.info(`Exposing ${this.device.name} as ${this.exposeAsLabel(getExposeAs(this.config))}.`);
+
+        if (isLegacySetTopBox(this.config)) {
+            this.log.warn('The "setTopBox" option is deprecated. It is interpreted as "exposeAs": "setTopBox". \
+Please migrate to the "exposeAs" option.');
+        }
 
         this.accessory.category = this.resolveCategory(mode);
         this.poweredOn = await this.device.getPowerState() === NodePyATVPowerState.on;

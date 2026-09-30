@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { getAccessoryMode, getExposeAs, resolveDeviceConfig } from './config';
+import { getAccessoryMode, getExposeAs, isLegacySetTopBox, resolveDeviceConfig } from './config';
 import type { AppleTVEnhancedPlatformConfig } from './interfaces';
 
 const MAC: string = 'AA:BB:CC:DD:EE:FF';
@@ -40,11 +40,26 @@ describe('config', (): void => {
         });
     });
 
+    describe('isLegacySetTopBox', (): void => {
+        it('is true when only setTopBox is set', (): void => {
+            assert.equal(isLegacySetTopBox({ ...baseConfig(), setTopBox: true }), true);
+            assert.equal(isLegacySetTopBox({ ...baseConfig(), setTopBox: false }), true);
+        });
+
+        it('is false when exposeAs is set', (): void => {
+            assert.equal(isLegacySetTopBox({ ...baseConfig(), exposeAs: 'appleTV', setTopBox: true }), false);
+        });
+
+        it('is false when neither is set', (): void => {
+            assert.equal(isLegacySetTopBox(baseConfig()), false);
+        });
+    });
+
     describe('resolveDeviceConfig', (): void => {
-        it('normalizes exposeAs from the global config', (): void => {
-            assert.equal(resolveDeviceConfig(baseConfig(), MAC).exposeAs, 'appleTV');
-            assert.equal(resolveDeviceConfig({ ...baseConfig(), setTopBox: true }, MAC).exposeAs, 'setTopBox');
-            assert.equal(resolveDeviceConfig({ ...baseConfig(), exposeAs: 'sensorsOnly' }, MAC).exposeAs, 'sensorsOnly');
+        it('resolves exposeAs from the global config', (): void => {
+            assert.equal(getExposeAs(resolveDeviceConfig(baseConfig(), MAC)), 'appleTV');
+            assert.equal(getExposeAs(resolveDeviceConfig({ ...baseConfig(), setTopBox: true }, MAC)), 'setTopBox');
+            assert.equal(getExposeAs(resolveDeviceConfig({ ...baseConfig(), exposeAs: 'sensorsOnly' }, MAC)), 'sensorsOnly');
         });
 
         it('does not mutate the platform config', (): void => {
@@ -58,8 +73,8 @@ describe('config', (): void => {
                 ...baseConfig(),
                 deviceSpecificOverrides: [{ mac: MAC.toLowerCase(), overrideExposeAs: true, exposeAs: 'sensorsOnly' }],
             };
-            assert.equal(resolveDeviceConfig(config, MAC).exposeAs, 'sensorsOnly');
-            assert.equal(resolveDeviceConfig(config, OTHER_MAC).exposeAs, 'appleTV');
+            assert.equal(getExposeAs(resolveDeviceConfig(config, MAC)), 'sensorsOnly');
+            assert.equal(getExposeAs(resolveDeviceConfig(config, OTHER_MAC)), 'appleTV');
         });
 
         it('lets a per-device override win over the deprecated setTopBox flag', (): void => {
@@ -68,7 +83,17 @@ describe('config', (): void => {
                 setTopBox: true,
                 deviceSpecificOverrides: [{ mac: MAC, overrideExposeAs: true, exposeAs: 'appleTV' }],
             };
-            assert.equal(resolveDeviceConfig(config, MAC).exposeAs, 'appleTV');
+            assert.equal(getExposeAs(resolveDeviceConfig(config, MAC)), 'appleTV');
+        });
+
+        it('keeps a per-device legacy setTopBox override detectable', (): void => {
+            const config: AppleTVEnhancedPlatformConfig = {
+                ...baseConfig(),
+                deviceSpecificOverrides: [{ mac: MAC, overrideSetTopBox: true, setTopBox: true }],
+            };
+            const resolved: AppleTVEnhancedPlatformConfig = resolveDeviceConfig(config, MAC);
+            assert.equal(isLegacySetTopBox(resolved), true);
+            assert.equal(getExposeAs(resolved), 'setTopBox');
         });
 
         it('still applies the other per-device overrides', (): void => {
